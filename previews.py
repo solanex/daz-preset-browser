@@ -5,9 +5,11 @@ callbacks; if Python garbage-collects them, the UI shows corrupted strings or
 crashes. Every list handed to Blender is therefore kept in `_enum_cache`.
 """
 
+import os
+
 import bpy.utils.previews
 
-from . import prefs, scanner
+from . import prefs, scanner, store
 
 _pcoll = None
 _enum_cache = {}
@@ -46,11 +48,11 @@ def cleanup():
         _pcoll = None
 
 
-def _cached(key, build):
+def _cached(key, build, allow_empty=False):
     items = _enum_cache.get(key)
     if items is None:
         items = build()
-        if not items:
+        if not items and not allow_empty:
             items = [('NONE', "None found", "", 'INFO', 0)]
         _enum_cache[key] = items
     return items
@@ -100,3 +102,31 @@ def pose_items(self, context):
         return items
 
     return _cached(("poses", roots, cat, gen_key, folder_key), build)
+
+
+def _entry_items(cache_key, entries):
+    def build():
+        pcoll = _previews()
+        items = []
+        for i, entry in enumerate(entries):
+            if not os.path.isfile(entry["duf"]):
+                continue
+            icon = FALLBACK_ICON
+            thumb = entry.get("thumb")
+            if thumb and os.path.isfile(thumb):
+                preview = pcoll.get(entry["duf"])
+                if preview is None:
+                    preview = pcoll.load(entry["duf"], thumb, 'IMAGE')
+                icon = preview.icon_id
+            items.append((entry["duf"], entry["name"], entry["name"], icon, i))
+        return items
+
+    return _cached((cache_key, store.version), build, allow_empty=True)
+
+
+def favorite_items(self, context):
+    return _entry_items("favorites", store.favorites())
+
+
+def recent_items(self, context):
+    return _entry_items("recents", store.recents())

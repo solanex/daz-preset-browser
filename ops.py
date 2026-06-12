@@ -4,7 +4,8 @@ import os
 
 import bpy
 
-from . import prefs, previews, scanner
+from . import prefs, previews, scanner, store
+
 
 def daz_rig_type(ob):
     """Diffeomorphic's rig type string ("genesis9", ...) or "" if not a
@@ -43,6 +44,93 @@ def find_target_armature(context):
     return None
 
 
+def browsed_pose(props):
+    """The Pose currently selected in the main browser, or None."""
+    return scanner.get_pose(prefs.get_content_dirs(),
+                            previews.category(props), props.generation,
+                            props.folder, props.pose)
+
+
+def _select_only(op, context, ob):
+    """Make `ob` the only selected and the active object, as the Diffeomorphic
+    operators expect. Reports through `op`; returns False on failure."""
+    try:
+        for sel in list(context.selected_objects):
+            sel.select_set(False)
+        ob.select_set(True)
+        context.view_layer.objects.active = ob
+        return True
+    except RuntimeError as err:
+        op.report({'ERROR'},
+                  "Cannot select armature '%s': %s" % (ob.name, err))
+        return False
+
+
+def _apply_entry(op, context, entry, props):
+    """Apply a favorites/recents-style entry dict with the panel's option
+    toggles. Reports through `op`; returns True on success."""
+    is_expression = entry["type"] == 'EXPRESSIONS'
+    kind = "expression" if is_expression else "pose"
+    if not hasattr(bpy.ops, "daz") or not hasattr(bpy.ops.daz, "import_pose"):
+        op.report({'ERROR'},
+                  "Diffeomorphic DAZ importer is not installed/enabled")
+        return False
+    if not os.path.isfile(entry["duf"]):
+        op.report({'ERROR'}, "Preset file no longer exists: %s" % entry["duf"])
+        return False
+
+    arm = find_target_armature(context)
+    if not _select_only(op, context, arm):
+        return False
+
+    kwargs = dict(
+        files=[{"name": os.path.basename(entry["duf"])}],
+        directory=os.path.dirname(entry["duf"]),
+    )
+    if is_expression:
+        # import_expression shares import_pose's properties; calling with
+        # EXEC_DEFAULT skips its invoke(), which is what normally turns
+        # bones/object off — so pass these explicitly
+        operator = bpy.ops.daz.import_expression
+        kwargs.update(
+            affectBones=False,
+            affectObject=False,
+            affectMorphs=True,
+            useClearMorphs=props.clear_pose_first,
+            multiplier=props.morph_strength,
+        )
+    else:
+        operator = bpy.ops.daz.import_pose
+        kwargs.update(
+            useClearPose=props.clear_pose_first,
+            affectMorphs=props.affect_morphs,
+            affectObject=props.affect_object,
+        )
+        if props.convert_pose:
+            src = props.source_character
+            if src == 'AUTO':
+                src = scanner.source_for_generation(entry["generation"])
+                if src is None:
+                    op.report({'ERROR'},
+                              "Cannot derive a source character from "
+                              "'%s'; pick one manually" % entry["generation"])
+                    return False
+            kwargs.update(useConvert=True, srcCharacter=src)
+
+    try:
+        result = operator('EXEC_DEFAULT', **kwargs)
+    except Exception as err:
+        op.report({'ERROR'},
+                  "Diffeomorphic failed to apply %s: %s" % (kind, err))
+        return False
+
+    if 'FINISHED' not in result:
+        op.report({'WARNING'}, "Import did not finish (%s)" % result)
+        return False
+    op.report({'INFO'}, "Applied %s: %s" % (kind, entry["name"]))
+    return True
+
+
 class DAZPRESETS_OT_apply_pose(bpy.types.Operator):
     bl_idname = "dazpresets.apply_pose"
     bl_label = "Apply"
@@ -56,76 +144,154 @@ class DAZPRESETS_OT_apply_pose(bpy.types.Operator):
 
     def execute(self, context):
         props = context.scene.dazpresets
-        if not hasattr(bpy.ops, "daz") or not hasattr(bpy.ops.daz, "import_pose"):
+        pose = browsed_pose(props)
+        if pose is None:
+            self.report({'ERROR'}, "No preset selected")
+            return {'CANCELLED'}
+        entry = store.make_entry(props.preset_type, props.generation,
+                                 props.folder, pose)
+        if not _apply_entry(self, context, entry, props):
+            return {'CANCELLED'}
+        store.add_recent(entry)
+        return {'FINISHED'}
+
+
+class DAZPRESETS_OT_apply_entry(bpy.types.Operator):
+    bl_idname = "dazpresets.apply_entry"
+    bl_label = "Apply"
+    bl_description = "Apply this preset to the target armature " \
+                     "using the Diffeomorphic importer"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    source: bpy.props.EnumProperty(
+        items=[('FAVORITES', "Favorites", ""), ('RECENTS', "Recents", "")],
+        options={'HIDDEN'},
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return find_target_armature(context) is not None
+
+    def execute(self, context):
+        props = context.scene.dazpresets
+        if self.source == 'FAVORITES':
+            entry = store.find(store.favorites(), props.favorite)
+        else:
+            entry = store.find(store.recents(), props.recent)
+        if entry is None:
+            self.report({'ERROR'}, "No preset selected")
+            return {'CANCELLED'}
+        if not _apply_entry(self, context, entry, props):
+            return {'CANCELLED'}
+        store.add_recent(entry)
+        return {'FINISHED'}
+
+
+class DAZPRESETS_OT_toggle_favorite(bpy.types.Operator):
+    bl_idname = "dazpresets.toggle_favorite"
+    bl_label = "Favorite"
+    bl_description = "Add or remove the selected preset from the favorites"
+
+    def execute(self, context):
+        props = context.scene.dazpresets
+        pose = browsed_pose(props)
+        if pose is None:
+            self.report({'ERROR'}, "No preset selected")
+            return {'CANCELLED'}
+        entry = store.make_entry(props.preset_type, props.generation,
+                                 props.folder, pose)
+        added = store.toggle_favorite(entry)
+        self.report({'INFO'}, "Added to favorites" if added
+                    else "Removed from favorites")
+        return {'FINISHED'}
+
+
+class DAZPRESETS_OT_remove_favorite(bpy.types.Operator):
+    bl_idname = "dazpresets.remove_favorite"
+    bl_label = "Remove Favorite"
+    bl_description = "Remove this preset from the favorites"
+
+    def execute(self, context):
+        store.remove_favorite(context.scene.dazpresets.favorite)
+        return {'FINISHED'}
+
+
+# Diffeomorphic morph sets that expression presets drive (MS.Standards minus
+# the body/shape ones, which a "clear expression" must not touch)
+FACE_MORPH_SETS = ("Units", "Expressions", "Visemes", "Facs",
+                   "Facsdetails", "Facsexpr", "Head")
+
+
+class DAZPRESETS_OT_clear_pose(bpy.types.Operator):
+    bl_idname = "dazpresets.clear_pose"
+    bl_label = "Clear Pose"
+    bl_description = "Reset all bones of the target armature to the rest " \
+                     "pose. Keeps the object's world position unless " \
+                     "Move Object is enabled"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return find_target_armature(context) is not None
+
+    def execute(self, context):
+        props = context.scene.dazpresets
+        if not hasattr(bpy.ops, "daz") or not hasattr(bpy.ops.daz, "clear_pose"):
             self.report({'ERROR'},
                         "Diffeomorphic DAZ importer is not installed/enabled")
             return {'CANCELLED'}
-
-        is_expression = props.preset_type == 'EXPRESSIONS'
-        kind = "expression" if is_expression else "pose"
-        pose = scanner.get_pose(prefs.get_content_dirs(),
-                                previews.category(props), props.generation,
-                                props.folder, props.pose)
-        if pose is None:
-            self.report({'ERROR'}, "No %s selected" % kind)
-            return {'CANCELLED'}
-
         arm = find_target_armature(context)
-        try:
-            for sel in list(context.selected_objects):
-                sel.select_set(False)
-            arm.select_set(True)
-            context.view_layer.objects.active = arm
-        except RuntimeError as err:
-            self.report({'ERROR'},
-                        "Cannot select armature '%s': %s" % (arm.name, err))
+        if not _select_only(self, context, arm):
             return {'CANCELLED'}
-
-        kwargs = dict(
-            files=[{"name": os.path.basename(pose.duf_path)}],
-            directory=os.path.dirname(pose.duf_path),
-        )
-        if is_expression:
-            # import_expression shares import_pose's properties; calling with
-            # EXEC_DEFAULT skips its invoke(), which is what normally turns
-            # bones/object off — so pass these explicitly
-            operator = bpy.ops.daz.import_expression
-            kwargs.update(
-                affectBones=False,
-                affectObject=False,
-                affectMorphs=True,
-                useClearMorphs=props.clear_pose_first,
-                multiplier=props.morph_strength,
-            )
-        else:
-            operator = bpy.ops.daz.import_pose
-            kwargs.update(
-                useClearPose=props.clear_pose_first,
-                affectMorphs=props.affect_morphs,
-                affectObject=props.affect_object,
-            )
-            if props.convert_pose:
-                src = props.source_character
-                if src == 'AUTO':
-                    src = scanner.source_for_generation(props.generation)
-                    if src is None:
-                        self.report({'ERROR'},
-                                    "Cannot derive a source character from "
-                                    "'%s'; pick one manually" % props.generation)
-                        return {'CANCELLED'}
-                kwargs.update(useConvert=True, srcCharacter=src)
-
+        # daz.clear_pose also resets the object's world matrix; honor the
+        # panel's Move Object toggle like Apply does
+        world = arm.matrix_world.copy()
         try:
-            result = operator('EXEC_DEFAULT', **kwargs)
+            bpy.ops.daz.clear_pose()
         except Exception as err:
-            self.report({'ERROR'},
-                        "Diffeomorphic failed to apply %s: %s" % (kind, err))
+            self.report({'ERROR'}, "Diffeomorphic failed to clear pose: %s" % err)
             return {'CANCELLED'}
+        if not props.affect_object:
+            arm.matrix_world = world
+        self.report({'INFO'}, "Cleared pose: %s" % arm.name)
+        return {'FINISHED'}
 
-        if 'FINISHED' not in result:
-            self.report({'WARNING'}, "Import did not finish (%s)" % result)
+
+class DAZPRESETS_OT_clear_expression(bpy.types.Operator):
+    bl_idname = "dazpresets.clear_expression"
+    bl_label = "Clear Expression"
+    bl_description = "Zero all face morphs (units, expressions, visemes, " \
+                     "FACS) of the target armature. Body and shaping morphs " \
+                     "are not touched"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return find_target_armature(context) is not None
+
+    def execute(self, context):
+        if not hasattr(bpy.ops, "daz") or not hasattr(bpy.ops.daz, "clear_morphs"):
+            self.report({'ERROR'},
+                        "Diffeomorphic DAZ importer is not installed/enabled")
             return {'CANCELLED'}
-        self.report({'INFO'}, "Applied %s: %s" % (kind, pose.name))
+        arm = find_target_armature(context)
+        if not _select_only(self, context, arm):
+            return {'CANCELLED'}
+        errors = []
+        for morphset in FACE_MORPH_SETS:
+            try:
+                bpy.ops.daz.clear_morphs(morphset=morphset)
+            except Exception as err:
+                errors.append("%s: %s" % (morphset, err))
+        if len(errors) == len(FACE_MORPH_SETS):
+            self.report({'ERROR'},
+                        "Diffeomorphic failed to clear morphs (%s)" % errors[0])
+            return {'CANCELLED'}
+        if errors:
+            self.report({'WARNING'},
+                        "Some morph sets failed to clear: %s" % "; ".join(errors))
+        else:
+            self.report({'INFO'}, "Cleared expression: %s" % arm.name)
         return {'FINISHED'}
 
 
@@ -143,6 +309,11 @@ class DAZPRESETS_OT_refresh(bpy.types.Operator):
 
 classes = (
     DAZPRESETS_OT_apply_pose,
+    DAZPRESETS_OT_apply_entry,
+    DAZPRESETS_OT_toggle_favorite,
+    DAZPRESETS_OT_remove_favorite,
+    DAZPRESETS_OT_clear_pose,
+    DAZPRESETS_OT_clear_expression,
     DAZPRESETS_OT_refresh,
 )
 

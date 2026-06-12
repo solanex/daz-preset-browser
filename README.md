@@ -33,6 +33,14 @@ and object transform untouched) and offer *Clear Morphs First* plus a
   is derived from the browsed generation, with a manual override dropdown.
   Diffeomorphic also auto-detects the source from the pose file itself, so
   try without conversion first.
+- **Clear Pose** resets all bones to the rest pose (keeping the character's
+  world position unless *Move Object* is on); **Clear Expression** zeroes the
+  face morph sets (units, expressions, visemes, FACS) without touching body
+  or shaping morphs.
+- The star next to the selected preset adds it to **Favorites**; every applied
+  preset lands in **Recent** (last 12). Both live in collapsible sub-panels
+  with their own picker and Apply button, work across generations and preset
+  types, and persist in `dazpresets.json` in Blender's config directory.
 
 ## Requirements
 

@@ -2,7 +2,7 @@
 
 import bpy
 
-from . import ops, prefs, previews, scanner
+from . import ops, prefs, previews, scanner, store
 
 
 def _first_item(items):
@@ -76,6 +76,16 @@ class DazPresetBrowserProperties(bpy.types.PropertyGroup):
         description="Pose to apply",
         items=previews.pose_items,
     )
+    favorite: bpy.props.EnumProperty(
+        name="Favorite",
+        description="Favorite preset to apply",
+        items=previews.favorite_items,
+    )
+    recent: bpy.props.EnumProperty(
+        name="Recent",
+        description="Recently applied preset",
+        items=previews.recent_items,
+    )
     clear_pose_first: bpy.props.BoolProperty(
         name="Clear Pose First",
         description="Reset the pose before applying, so the result matches "
@@ -141,7 +151,14 @@ class DAZPRESETS_PT_browser(bpy.types.Panel):
         col.template_icon_view(props, "pose", show_labels=True, scale=7.0)
         items = previews.pose_items(props, context)
         label = next((i[1] for i in items if i[0] == props.pose), "")
-        col.label(text=label)
+        row = col.row(align=True)
+        row.label(text=label)
+        browsed = ops.browsed_pose(props)
+        if browsed is not None:
+            starred = store.is_favorite(browsed.duf_path)
+            row.operator(ops.DAZPRESETS_OT_toggle_favorite.bl_idname,
+                         text="", emboss=False,
+                         icon='SOLO_ON' if starred else 'SOLO_OFF')
 
         is_expression = props.preset_type == 'EXPRESSIONS'
         if is_expression:
@@ -165,12 +182,65 @@ class DAZPRESETS_PT_browser(bpy.types.Panel):
                         text="Apply Expression" if is_expression
                         else "Apply Pose",
                         icon='ARMATURE_DATA')
+        row = layout.row(align=True)
+        row.operator(ops.DAZPRESETS_OT_clear_pose.bl_idname, icon='LOOP_BACK')
+        row.operator(ops.DAZPRESETS_OT_clear_expression.bl_idname)
         layout.operator(ops.DAZPRESETS_OT_refresh.bl_idname, icon='FILE_REFRESH')
+
+
+class _EntryListPanel:
+    """Shared draw for the Favorites and Recent sub-panels."""
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Daz Presets"
+    bl_parent_id = "DAZPRESETS_PT_browser"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    prop_name = ""      # "favorite" / "recent"
+    source = ""         # 'FAVORITES' / 'RECENTS'
+    items_func = None
+
+    def draw(self, context):
+        layout = self.layout
+        props = context.scene.dazpresets
+        items = type(self).items_func(props, context)
+        if not items:
+            layout.label(text="Nothing here yet")
+            return
+        col = layout.column(align=True)
+        col.template_icon_view(props, self.prop_name, show_labels=True,
+                               scale=5.0)
+        selected = getattr(props, self.prop_name)
+        label = next((i[1] for i in items if i[0] == selected), "")
+        col.label(text=label)
+        row = layout.row(align=True)
+        op = row.operator(ops.DAZPRESETS_OT_apply_entry.bl_idname,
+                          icon='ARMATURE_DATA')
+        op.source = self.source
+        if self.source == 'FAVORITES':
+            row.operator(ops.DAZPRESETS_OT_remove_favorite.bl_idname,
+                         text="", icon='X')
+
+
+class DAZPRESETS_PT_favorites(_EntryListPanel, bpy.types.Panel):
+    bl_label = "Favorites"
+    prop_name = "favorite"
+    source = 'FAVORITES'
+    items_func = staticmethod(previews.favorite_items)
+
+
+class DAZPRESETS_PT_recent(_EntryListPanel, bpy.types.Panel):
+    bl_label = "Recent"
+    prop_name = "recent"
+    source = 'RECENTS'
+    items_func = staticmethod(previews.recent_items)
 
 
 classes = (
     DazPresetBrowserProperties,
     DAZPRESETS_PT_browser,
+    DAZPRESETS_PT_favorites,
+    DAZPRESETS_PT_recent,
 )
 
 

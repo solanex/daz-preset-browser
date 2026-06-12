@@ -21,14 +21,17 @@ except ModuleNotFoundError:
 if bpy is not None:
     if "scanner" in locals():
         import importlib
-        for _mod in (scanner, prefs, previews, ops, ui):
+        for _mod in (scanner, store, prefs, previews, ops, ui):
             importlib.reload(_mod)
 
-    from . import scanner, prefs, previews, ops, ui
+    from . import scanner, store, prefs, previews, ops, ui
 
     _modules = (prefs, ops, ui)
 
     def register():
+        import os
+        store.setup(os.path.join(bpy.utils.user_resource('CONFIG'),
+                                 "dazpresets.json"))
         for mod in _modules:
             mod.register()
 

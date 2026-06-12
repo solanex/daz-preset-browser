@@ -7,6 +7,7 @@ generation/folder/pose enums with thumbnails — everything except clicking
 Apply on a real character.
 """
 
+import os
 import sys
 
 import bpy
@@ -79,6 +80,22 @@ def main():
     # Apply must refuse politely without an armature
     assert not bpy.ops.dazpresets.apply_pose.poll()
 
+    # Favorites/recents: use a temp store so the user's real one is untouched
+    import tempfile
+    store_dir = tempfile.mkdtemp()
+    mod.store.setup(os.path.join(store_dir, "presets.json"))
+    assert mod.previews.favorite_items(props, bpy.context) == []
+    browsed = mod.ops.browsed_pose(props)
+    bpy.ops.dazpresets.toggle_favorite()
+    favs = mod.previews.favorite_items(props, bpy.context)
+    print("Favorite after toggle:", favs[0][1] if favs else None)
+    assert len(favs) == 1 and favs[0][1] == browsed.name
+    assert favs[0][0] == browsed.duf_path
+    props.favorite = favs[0][0]
+    bpy.ops.dazpresets.remove_favorite()
+    assert mod.previews.favorite_items(props, bpy.context) == []
+    assert mod.previews.recent_items(props, bpy.context) == []
+
     # Target resolution: an armature alone in the active collection is found
     # even when a mesh is the active object
     arm_data = bpy.data.armatures.new("TestRig")
@@ -87,6 +104,17 @@ def main():
     found = mod.ops.find_target_armature(bpy.context)
     assert found is arm_ob, "collection armature not found (got %s)" % found
     assert bpy.ops.dazpresets.apply_pose.poll()
+
+    # Clear Pose keeps the world position (Move Object is off by default)
+    arm_ob.location = (1.0, 2.0, 3.0)
+    bpy.context.view_layer.update()
+    assert bpy.ops.dazpresets.clear_pose.poll()
+    result = bpy.ops.dazpresets.clear_pose()
+    assert result == {'FINISHED'}, "clear_pose failed: %s" % result
+    assert tuple(arm_ob.location) == (1.0, 2.0, 3.0), \
+        "clear_pose moved the object to %s" % tuple(arm_ob.location)
+    result = bpy.ops.dazpresets.clear_expression()
+    assert result == {'FINISHED'}, "clear_expression failed: %s" % result
 
     print("SMOKE TEST PASSED")
 
