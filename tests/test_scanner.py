@@ -53,11 +53,15 @@ def roots(tmp_path):
           "Magic Lessons Poses", "MGCLSNS 01 Standing.duf.png")
     touch(b, "people", "Genesis 8.1 Female", "Poses", "Base", "T-Pose.duf")
 
+    # Expressions category, only in root A and only for Genesis 9
+    touch(a, "People", "Genesis 9", "Expressions", "3D Sugar", "Happy.duf")
+    touch(a, "People", "Genesis 9", "Expressions", "3D Sugar", "Happy.png")
+
     return [str(a), str(b)]
 
 
 def test_generations_merge_case_insensitively(roots):
-    gens = scanner.list_generations(roots)
+    gens = scanner.list_generations(roots, "Poses")
     assert set(gens) == {"genesis 9", "genesis 8.1 female"}
     g9 = gens["genesis 9"]
     assert g9.label == "Genesis 9"  # first spelling wins
@@ -65,8 +69,8 @@ def test_generations_merge_case_insensitively(roots):
 
 
 def test_folders_flatten_and_merge(roots):
-    gens = scanner.list_generations(roots)
-    folders = scanner.list_pose_folders(gens["genesis 9"])
+    gens = scanner.list_generations(roots, "Poses")
+    folders = scanner.list_pose_folders(gens["genesis 9"], "Poses")
     labels = {f.label for f in folders.values()}
     assert "Aeon Soul - Everyday Walking Poses" in labels
     assert "FG Sitting Poses" in labels
@@ -77,8 +81,8 @@ def test_folders_flatten_and_merge(roots):
 
 
 def test_poses_merge_thumbnails_and_skip_tips(roots):
-    gens = scanner.list_generations(roots)
-    folders = scanner.list_pose_folders(gens["genesis 9"])
+    gens = scanner.list_generations(roots, "Poses")
+    folders = scanner.list_pose_folders(gens["genesis 9"], "Poses")
     poses = scanner.list_poses(folders["aeon soul/everyday walking poses"])
     by_name = {p.name: p for p in poses}
     assert set(by_name) == {"Wlk Cautious 01 G9", "No Thumb Pose", "Wlk Extra 02 G9"}
@@ -94,15 +98,32 @@ def test_poses_merge_thumbnails_and_skip_tips(roots):
 
 def test_cache_and_lookup(roots):
     scanner.clear_cache()
-    gens = scanner.get_generations(roots)
-    assert scanner.get_generations(roots) is gens  # cached
-    pose = scanner.get_pose(roots, "genesis 9", "fg sitting poses", "sit 01.duf")
+    gens = scanner.get_generations(roots, "Poses")
+    assert scanner.get_generations(roots, "Poses") is gens  # cached
+    pose = scanner.get_pose(roots, "Poses", "genesis 9", "fg sitting poses",
+                            "sit 01.duf")
     assert pose is not None and pose.name == "Sit 01"
     scanner.clear_cache()
 
 
+def test_expressions_category(roots):
+    # Only generations with an Expressions folder show up for that category
+    gens = scanner.list_generations(roots, "Expressions")
+    assert set(gens) == {"genesis 9"}
+    folders = scanner.list_pose_folders(gens["genesis 9"], "Expressions")
+    assert [f.label for f in folders.values()] == ["3D Sugar"]
+    exprs = scanner.list_poses(folders["3d sugar"])
+    assert len(exprs) == 1 and exprs[0].name == "Happy"
+    assert exprs[0].thumb_path.endswith("Happy.png")
+    # Pose and expression caches don't bleed into each other
+    scanner.clear_cache()
+    assert "3d sugar" not in scanner.get_pose_folders(roots, "Poses", "genesis 9")
+    scanner.clear_cache()
+
+
 def test_missing_roots_are_harmless(tmp_path):
-    gens = scanner.list_generations([str(tmp_path / "nope"), str(tmp_path)])
+    gens = scanner.list_generations([str(tmp_path / "nope"), str(tmp_path)],
+                                    "Poses")
     assert gens == {}
 
 

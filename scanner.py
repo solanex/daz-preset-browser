@@ -77,9 +77,10 @@ def ci_subdir(parent, name):
     return None
 
 
-def list_generations(roots):
+def list_generations(roots, category):
     """Union of People/* directories across all content roots, merged
-    case-insensitively. Only folders that contain a Poses subfolder count."""
+    case-insensitively. Only folders containing a `category` ("Poses",
+    "Expressions", ...) subfolder count."""
     gens = {}
     for root in roots:
         people = ci_subdir(root, "People")
@@ -92,7 +93,7 @@ def list_generations(roots):
         for entry in entries:
             if not entry.is_dir():
                 continue
-            if not ci_subdir(entry.path, "Poses"):
+            if not ci_subdir(entry.path, category):
                 continue
             key = entry.name.lower()
             gen = gens.get(key)
@@ -103,13 +104,14 @@ def list_generations(roots):
     return {k: gens[k] for k in sorted(gens)}
 
 
-def list_pose_folders(generation):
-    """Walk the Poses/ subtree of every root of a generation. Any directory
-    holding at least one .duf becomes a PoseFolder; nested paths are flattened
-    into a single label ("Vendor - Product - Subset")."""
+def list_pose_folders(generation, category):
+    """Walk the category subtree (Poses/, Expressions/, ...) of every root of
+    a generation. Any directory holding at least one .duf becomes a
+    PoseFolder; nested paths are flattened into a single label
+    ("Vendor - Product - Subset")."""
     folders = {}
     for gen_path in generation.paths:
-        poses_root = ci_subdir(gen_path, "Poses")
+        poses_root = ci_subdir(gen_path, category)
         if not poses_root:
             continue
         for dirpath, dirnames, filenames in os.walk(poses_root):
@@ -169,7 +171,7 @@ def _root_data(roots):
     sig = tuple(roots)
     data = _cache.get(sig)
     if data is None:
-        data = _cache[sig] = {"generations": None, "folders": {}, "poses": {}}
+        data = _cache[sig] = {"generations": {}, "folders": {}, "poses": {}}
     return data
 
 
@@ -177,35 +179,36 @@ def clear_cache():
     _cache.clear()
 
 
-def get_generations(roots):
+def get_generations(roots, category):
     data = _root_data(roots)
-    if data["generations"] is None:
-        data["generations"] = list_generations(roots)
-    return data["generations"]
+    gens = data["generations"].get(category)
+    if gens is None:
+        gens = data["generations"][category] = list_generations(roots, category)
+    return gens
 
 
-def get_pose_folders(roots, gen_key):
+def get_pose_folders(roots, category, gen_key):
     data = _root_data(roots)
-    folders = data["folders"].get(gen_key)
+    folders = data["folders"].get((category, gen_key))
     if folders is None:
-        gen = get_generations(roots).get(gen_key)
-        folders = list_pose_folders(gen) if gen else {}
-        data["folders"][gen_key] = folders
+        gen = get_generations(roots, category).get(gen_key)
+        folders = list_pose_folders(gen, category) if gen else {}
+        data["folders"][(category, gen_key)] = folders
     return folders
 
 
-def get_poses(roots, gen_key, folder_key):
+def get_poses(roots, category, gen_key, folder_key):
     data = _root_data(roots)
-    poses = data["poses"].get((gen_key, folder_key))
+    poses = data["poses"].get((category, gen_key, folder_key))
     if poses is None:
-        folder = get_pose_folders(roots, gen_key).get(folder_key)
+        folder = get_pose_folders(roots, category, gen_key).get(folder_key)
         poses = list_poses(folder) if folder else []
-        data["poses"][(gen_key, folder_key)] = poses
+        data["poses"][(category, gen_key, folder_key)] = poses
     return poses
 
 
-def get_pose(roots, gen_key, folder_key, pose_key):
-    for pose in get_poses(roots, gen_key, folder_key):
+def get_pose(roots, category, gen_key, folder_key, pose_key):
+    for pose in get_poses(roots, category, gen_key, folder_key):
         if pose.key == pose_key:
             return pose
     return None
@@ -216,14 +219,17 @@ if __name__ == "__main__":
     import sys
 
     roots = sys.argv[1:]
-    gens = get_generations(roots)
-    print("Generations:", ", ".join(g.label for g in gens.values()))
-    for gen in gens.values():
-        folders = get_pose_folders(roots, gen.key)
-        n_poses = sum(len(get_poses(roots, gen.key, k)) for k in folders)
-        print(f"\n{gen.label}: {len(folders)} folders, {n_poses} poses")
-        for folder in list(folders.values())[:10]:
-            poses = get_poses(roots, gen.key, folder.key)
-            missing = sum(1 for p in poses if not p.thumb_path)
-            extra = f", {missing} without thumbnail" if missing else ""
-            print(f"  {folder.label} ({len(poses)} poses{extra})")
+    for category in ("Poses", "Expressions"):
+        gens = get_generations(roots, category)
+        print(f"\n=== {category} ===")
+        print("Generations:", ", ".join(g.label for g in gens.values()))
+        for gen in gens.values():
+            folders = get_pose_folders(roots, category, gen.key)
+            n_poses = sum(len(get_poses(roots, category, gen.key, k))
+                          for k in folders)
+            print(f"\n{gen.label}: {len(folders)} folders, {n_poses} presets")
+            for folder in list(folders.values())[:10]:
+                poses = get_poses(roots, category, gen.key, folder.key)
+                missing = sum(1 for p in poses if not p.thumb_path)
+                extra = f", {missing} without thumbnail" if missing else ""
+                print(f"  {folder.label} ({len(poses)} presets{extra})")

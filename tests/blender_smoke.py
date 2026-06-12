@@ -42,8 +42,8 @@ def main():
         "pose enum items malformed"
     if bpy.app.background:
         # icon_id is always 0 without a UI; verify the image itself loads
-        pose = mod.scanner.get_pose(roots, props.generation, props.folder,
-                                    poses[0][0])
+        pose = mod.scanner.get_pose(roots, "Poses", props.generation,
+                                    props.folder, poses[0][0])
         preview = mod.previews._previews()[pose.duf_path]
         assert tuple(preview.image_size) > (0, 0), "thumbnail failed to load"
         print("Thumbnail loads, size:", tuple(preview.image_size))
@@ -57,6 +57,21 @@ def main():
     assert filtered and all("walking" in f[1].lower() for f in filtered)
     assert "walking" in props.folder
     props.folder_search = ""
+
+    # Expressions category works the same way
+    props.preset_type = 'EXPRESSIONS'
+    gens = mod.previews.generation_items(props, bpy.context)
+    print("Expression generations:", [g[1] for g in gens])
+    assert any(g[0] == "genesis 9" for g in gens)
+    assert props.generation == "genesis 9", "generation not kept on type switch"
+    folders = mod.previews.folder_items(props, bpy.context)
+    exprs = mod.previews.pose_items(props, bpy.context)
+    print("Expression folders: %d, first folder '%s' has %d presets"
+          % (len(folders), folders[0][1], len(exprs)))
+    assert folders and folders[0][0] != 'NONE'
+    assert exprs and exprs[0][0] != 'NONE'
+    assert hasattr(bpy.ops.daz, "import_expression")
+    props.preset_type = 'POSES'
 
     assert hasattr(bpy.ops.dazpresets, "apply_pose")
     assert hasattr(bpy.ops.dazpresets, "refresh")

@@ -45,8 +45,8 @@ def find_target_armature(context):
 
 class DAZPRESETS_OT_apply_pose(bpy.types.Operator):
     bl_idname = "dazpresets.apply_pose"
-    bl_label = "Apply Pose"
-    bl_description = "Apply the selected Daz pose to the active armature " \
+    bl_label = "Apply"
+    bl_description = "Apply the selected Daz preset to the target armature " \
                      "using the Diffeomorphic importer"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -61,10 +61,13 @@ class DAZPRESETS_OT_apply_pose(bpy.types.Operator):
                         "Diffeomorphic DAZ importer is not installed/enabled")
             return {'CANCELLED'}
 
-        pose = scanner.get_pose(prefs.get_content_dirs(), props.generation,
+        is_expression = props.preset_type == 'EXPRESSIONS'
+        kind = "expression" if is_expression else "pose"
+        pose = scanner.get_pose(prefs.get_content_dirs(),
+                                previews.category(props), props.generation,
                                 props.folder, props.pose)
         if pose is None:
-            self.report({'ERROR'}, "No pose selected")
+            self.report({'ERROR'}, "No %s selected" % kind)
             return {'CANCELLED'}
 
         arm = find_target_armature(context)
@@ -81,31 +84,48 @@ class DAZPRESETS_OT_apply_pose(bpy.types.Operator):
         kwargs = dict(
             files=[{"name": os.path.basename(pose.duf_path)}],
             directory=os.path.dirname(pose.duf_path),
-            useClearPose=props.clear_pose_first,
-            affectMorphs=props.affect_morphs,
-            affectObject=props.affect_object,
         )
-        if props.convert_pose:
-            src = props.source_character
-            if src == 'AUTO':
-                src = scanner.source_for_generation(props.generation)
-                if src is None:
-                    self.report({'ERROR'},
-                                "Cannot derive a source character from '%s'; "
-                                "pick one manually" % props.generation)
-                    return {'CANCELLED'}
-            kwargs.update(useConvert=True, srcCharacter=src)
+        if is_expression:
+            # import_expression shares import_pose's properties; calling with
+            # EXEC_DEFAULT skips its invoke(), which is what normally turns
+            # bones/object off — so pass these explicitly
+            operator = bpy.ops.daz.import_expression
+            kwargs.update(
+                affectBones=False,
+                affectObject=False,
+                affectMorphs=True,
+                useClearMorphs=props.clear_pose_first,
+                multiplier=props.morph_strength,
+            )
+        else:
+            operator = bpy.ops.daz.import_pose
+            kwargs.update(
+                useClearPose=props.clear_pose_first,
+                affectMorphs=props.affect_morphs,
+                affectObject=props.affect_object,
+            )
+            if props.convert_pose:
+                src = props.source_character
+                if src == 'AUTO':
+                    src = scanner.source_for_generation(props.generation)
+                    if src is None:
+                        self.report({'ERROR'},
+                                    "Cannot derive a source character from "
+                                    "'%s'; pick one manually" % props.generation)
+                        return {'CANCELLED'}
+                kwargs.update(useConvert=True, srcCharacter=src)
 
         try:
-            result = bpy.ops.daz.import_pose('EXEC_DEFAULT', **kwargs)
+            result = operator('EXEC_DEFAULT', **kwargs)
         except Exception as err:
-            self.report({'ERROR'}, "Diffeomorphic failed to apply pose: %s" % err)
+            self.report({'ERROR'},
+                        "Diffeomorphic failed to apply %s: %s" % (kind, err))
             return {'CANCELLED'}
 
         if 'FINISHED' not in result:
-            self.report({'WARNING'}, "Pose import did not finish (%s)" % result)
+            self.report({'WARNING'}, "Import did not finish (%s)" % result)
             return {'CANCELLED'}
-        self.report({'INFO'}, "Applied pose: %s" % pose.name)
+        self.report({'INFO'}, "Applied %s: %s" % (kind, pose.name))
         return {'FINISHED'}
 
 

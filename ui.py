@@ -10,7 +10,20 @@ def _first_item(items):
 
 
 def _on_generation_update(self, context):
+    # Dynamic enums store an index, which goes stale when the items list
+    # changes (e.g. on preset type switch). Remember the identifier while the
+    # index is still valid, for _on_preset_type_update.
+    self["last_generation"] = self.generation
     self.folder = _first_item(previews.folder_items(self, context))
+
+
+def _on_preset_type_update(self, context):
+    # Keep the generation when it exists for the new type, else pick the first
+    items = previews.generation_items(self, context)
+    wanted = self.get("last_generation", "")
+    if not any(item[0] == wanted for item in items):
+        wanted = _first_item(items)
+    self.generation = wanted  # always reassign so the folder list resets
 
 
 def _on_folder_update(self, context):
@@ -29,6 +42,17 @@ SOURCE_CHARACTER_ITEMS = [
 
 
 class DazPresetBrowserProperties(bpy.types.PropertyGroup):
+    preset_type: bpy.props.EnumProperty(
+        name="Type",
+        description="Kind of Daz preset to browse",
+        items=[
+            ('POSES', "Poses", "Pose presets (People/<Generation>/Poses)"),
+            ('EXPRESSIONS', "Expressions",
+             "Expression presets (People/<Generation>/Expressions)"),
+        ],
+        default='POSES',
+        update=_on_preset_type_update,
+    )
     generation: bpy.props.EnumProperty(
         name="Generation",
         description="Genesis generation (folder under People/)",
@@ -69,6 +93,11 @@ class DazPresetBrowserProperties(bpy.types.PropertyGroup):
                     "character in world space (off keeps it where it is)",
         default=False,
     )
+    morph_strength: bpy.props.FloatProperty(
+        name="Strength",
+        description="Multiplier for the expression's morph values",
+        default=1.0, min=0.1, max=10.0,
+    )
     convert_pose: bpy.props.BoolProperty(
         name="Convert Pose",
         description="Convert the pose to the target rig's generation, e.g. "
@@ -102,6 +131,7 @@ class DAZPRESETS_PT_browser(bpy.types.Panel):
             layout.operator(ops.DAZPRESETS_OT_refresh.bl_idname, icon='FILE_REFRESH')
             return
 
+        layout.prop(props, "preset_type")
         layout.prop(props, "generation")
         col = layout.column(align=True)
         col.prop(props, "folder_search", text="", icon='VIEWZOOM')
@@ -113,12 +143,17 @@ class DAZPRESETS_PT_browser(bpy.types.Panel):
         label = next((i[1] for i in items if i[0] == props.pose), "")
         col.label(text=label)
 
-        layout.prop(props, "clear_pose_first")
-        layout.prop(props, "affect_morphs")
-        layout.prop(props, "affect_object")
-        layout.prop(props, "convert_pose")
-        if props.convert_pose:
-            layout.prop(props, "source_character")
+        is_expression = props.preset_type == 'EXPRESSIONS'
+        if is_expression:
+            layout.prop(props, "clear_pose_first", text="Clear Morphs First")
+            layout.prop(props, "morph_strength")
+        else:
+            layout.prop(props, "clear_pose_first")
+            layout.prop(props, "affect_morphs")
+            layout.prop(props, "affect_object")
+            layout.prop(props, "convert_pose")
+            if props.convert_pose:
+                layout.prop(props, "source_character")
 
         arm = ops.find_target_armature(context)
         if arm is None:
@@ -126,7 +161,10 @@ class DAZPRESETS_PT_browser(bpy.types.Panel):
                          icon='INFO')
         else:
             layout.label(text="Target: %s" % arm.name, icon='ARMATURE_DATA')
-        layout.operator(ops.DAZPRESETS_OT_apply_pose.bl_idname, icon='ARMATURE_DATA')
+        layout.operator(ops.DAZPRESETS_OT_apply_pose.bl_idname,
+                        text="Apply Expression" if is_expression
+                        else "Apply Pose",
+                        icon='ARMATURE_DATA')
         layout.operator(ops.DAZPRESETS_OT_refresh.bl_idname, icon='FILE_REFRESH')
 
 

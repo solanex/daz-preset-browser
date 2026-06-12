@@ -1,8 +1,8 @@
 # Daz Preset Browser
 
-Blender addon: browse Daz Studio presets (poses today; expressions etc. are a
-natural extension) with thumbnails and apply them to an imported Daz character
-through the [Diffeomorphic DAZ importer](https://diffeomorphic.blogspot.com/).
+Blender addon: browse Daz Studio presets (poses and expressions) with
+thumbnails and apply them to an imported Daz character through the
+[Diffeomorphic DAZ importer](https://diffeomorphic.blogspot.com/).
 
 - Merges multiple Daz content libraries (read automatically from
   Diffeomorphic's settings, plus extra folders in the addon preferences).
@@ -15,9 +15,12 @@ through the [Diffeomorphic DAZ importer](https://diffeomorphic.blogspot.com/).
 
 ## Usage
 
-3D Viewport → Sidebar (N) → **Daz Presets** tab. Pick generation, folder, and
-pose, select the Daz armature, click **Apply Pose**. *Clear Pose First* makes
-the result match the thumbnail exactly; disable it to layer partial poses.
+3D Viewport → Sidebar (N) → **Daz Presets** tab. Pick the preset type (Poses
+or Expressions), generation, folder, and preset, select the Daz armature,
+click **Apply**. *Clear Pose First* makes the result match the thumbnail
+exactly; disable it to layer partial poses. Expressions are morph-only (bones
+and object transform untouched) and offer *Clear Morphs First* plus a
+*Strength* multiplier instead of the pose options.
 
 - The search field above the folder dropdown filters folders by name
   (e.g. type `sit` to see only sitting-pose folders).
