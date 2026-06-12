@@ -1,0 +1,20 @@
+schema_version = "1.0.0"
+
+id = "daz_preset_browser"
+version = "0.1.0"
+name = "Daz Preset Browser"
+tagline = "Browse and apply Daz Studio presets with thumbnails via Diffeomorphic"
+maintainer = "Robbie <robbie@solanex.be>"
+type = "add-on"
+license = ["SPDX:GPL-3.0-or-later"]
+blender_version_min = "4.2.0"
+tags = ["Animation", "Rigging"]
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".venv/",
+  "tests/",
+  ".pytest_cache/",
+  "pytest.ini",
+]
