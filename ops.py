@@ -18,7 +18,14 @@ def daz_rig_type(ob):
 def find_target_armature(context):
     """The armature a pose should be applied to: the active armature, the
     armature deforming the active mesh, the only selected armature, or the
-    only (Daz) armature in the active collection."""
+    only (Daz) armature in the active collection. When that armature is
+    itself driven by a control rig (Diffeomorphic's MHX/Rigify conversion
+    with the Daz rig kept), the control rig is returned instead."""
+    arm = _find_context_armature(context)
+    return control_rig(arm) if arm is not None else None
+
+
+def _find_context_armature(context):
     def is_arm(ob):
         return ob is not None and ob.type == 'ARMATURE'
 
@@ -31,17 +38,57 @@ def find_target_armature(context):
                 return mod.object
         if is_arm(ob.parent):
             return ob.parent
-    arms = [o for o in context.selected_objects if is_arm(o)]
+    arms = _pick_armatures(o for o in context.selected_objects if is_arm(o))
     if len(arms) == 1:
         return arms[0]
     coll = context.collection
     if coll is not None:
-        arms = [o for o in coll.all_objects if is_arm(o)]
-        daz_arms = [o for o in arms if daz_rig_type(o)]
-        arms = daz_arms or arms
+        arms = _pick_armatures(o for o in coll.all_objects if is_arm(o))
         if len(arms) == 1:
             return arms[0]
     return None
+
+
+# Constraint types Diffeomorphic uses to slave the kept Daz rig to its
+# MHX/Rigify control rig
+_SLAVE_CONSTRAINTS = {'COPY_TRANSFORMS', 'COPY_ROTATION', 'COPY_LOCATION'}
+
+
+def control_rig(arm):
+    """The rig that actually drives `arm`: if most of its bones copy their
+    transforms from another Daz armature, poses and expressions have to go
+    to that armature (its sliders drive `arm`'s), so return it. Otherwise
+    `arm` itself."""
+    seen = {arm}
+    while arm.pose is not None:  # None until the armature was evaluated once
+        targets = {}
+        for pb in arm.pose.bones:
+            for con in pb.constraints:
+                target = getattr(con, "target", None)
+                if (con.type in _SLAVE_CONSTRAINTS and target is not None
+                        and target.type == 'ARMATURE' and target is not arm):
+                    targets[target] = targets.get(target, 0) + 1
+        if not targets:
+            return arm
+        master, count = max(targets.items(), key=lambda kv: kv[1])
+        if (master in seen or not daz_rig_type(master)
+                or count < len(arm.pose.bones) // 2):
+            return arm
+        seen.add(master)
+        arm = master
+    return arm
+
+
+def _pick_armatures(candidates):
+    """Narrow a set of armatures down to the most plausible pose targets:
+    Daz rigs over plain ones, and rigs that actually deform meshes over
+    orphaned ones (e.g. a leftover MHX copy next to the original rig)."""
+    arms = list(candidates)
+    daz_arms = [o for o in arms if daz_rig_type(o)]
+    arms = daz_arms or arms
+    deforming = [o for o in arms
+                 if any(c.type == 'MESH' for c in o.children)]
+    return deforming or arms
 
 
 def browsed_pose(props):

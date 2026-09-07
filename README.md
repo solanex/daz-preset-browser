@@ -27,7 +27,10 @@ and object transform untouched) and offer *Clear Morphs First* plus a
 - The target armature is resolved from context: the active armature, the
   armature deforming the active mesh, the only selected armature, or the only
   Daz armature in the active collection — so clicking a character's collection
-  in the outliner is enough. The panel shows the resolved target.
+  in the outliner is enough. Characters converted to MHX/Rigify with the Daz
+  rig kept are handled: the kept rig is slaved to the control rig by
+  constraints and its sliders are driven from it, so presets are applied to
+  the control rig automatically. The panel shows the resolved target.
 - *Convert Pose* converts between generations (e.g. a Genesis 8 pose onto a
   Genesis 9 character) using Diffeomorphic's converter. The source character
   is derived from the browsed generation, with a manual override dropdown.

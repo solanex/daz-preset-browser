@@ -122,6 +122,45 @@ def main():
     assert found is arm_ob, "collection armature not found (got %s)" % found
     assert bpy.ops.dazpresets.apply_pose.poll()
 
+    # A kept Daz rig slaved to an MHX control rig (Diffeomorphic "Convert to
+    # MHX") redirects to the control rig; a rig slaved to a non-Daz armature
+    # (or only a few constrained bones) does not
+    def make_rig(name, nbones, daz_type):
+        data = bpy.data.armatures.new(name)
+        ob = bpy.data.objects.new(name, data)
+        bpy.context.collection.objects.link(ob)
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.mode_set(mode='EDIT')
+        for i in range(nbones):
+            eb = data.edit_bones.new("b%d" % i)
+            eb.head, eb.tail = (0, 0, i), (0, 0, i + 1)
+        bpy.ops.object.mode_set(mode='OBJECT')
+        if daz_type:
+            ob.daz_importer.DazRig = daz_type
+        return ob
+
+    def slave(ob, master, nbones):
+        for pb in list(ob.pose.bones)[:nbones]:
+            con = pb.constraints.new('COPY_ROTATION')
+            con.target = master
+            con.subtarget = pb.name
+
+    daz_rig = make_rig("SlaveG9", 6, "genesis9")
+    mhx_rig = make_rig("MasterMHX", 6, "mhx")
+    slave(daz_rig, mhx_rig, 6)
+    assert mod.ops.control_rig(daz_rig) is mhx_rig, "MHX redirect failed"
+    assert mod.ops.control_rig(mhx_rig) is mhx_rig
+    plain = make_rig("PlainMaster", 6, "")
+    daz_rig2 = make_rig("SlaveG9b", 6, "genesis9")
+    slave(daz_rig2, plain, 6)
+    assert mod.ops.control_rig(daz_rig2) is daz_rig2, "redirected to non-Daz rig"
+    daz_rig3 = make_rig("SlaveG9c", 6, "genesis9")
+    slave(daz_rig3, mhx_rig, 1)
+    assert mod.ops.control_rig(daz_rig3) is daz_rig3, "redirected on one bone"
+    for ob in (daz_rig, mhx_rig, plain, daz_rig2, daz_rig3):
+        bpy.data.objects.remove(ob)
+    bpy.context.view_layer.objects.active = None
+
     # Clear Pose keeps the world position (Move Object is off by default)
     arm_ob.location = (1.0, 2.0, 3.0)
     bpy.context.view_layer.update()
