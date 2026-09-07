@@ -13,9 +13,19 @@ import sys
 import bpy
 
 ADDON = "bl_ext.user_default.daz_preset_browser"
+DIFFEO = "bl_ext.user_default.import_daz"
 
 
 def main():
+    # A fresh Blender profile has Diffeomorphic installed but not enabled;
+    # enable it explicitly so this test does not depend on saved preferences
+    if DIFFEO not in bpy.context.preferences.addons:
+        bpy.ops.preferences.addon_enable(module=DIFFEO)
+    assert DIFFEO in bpy.context.preferences.addons, "Diffeomorphic did not enable"
+    # bl_info is stripped when an extension is loaded from saved preferences
+    info = getattr(sys.modules[DIFFEO], "bl_info", {})
+    print("Diffeomorphic version:", info.get("version", "(loaded from prefs)"))
+
     bpy.ops.preferences.addon_enable(module=ADDON)
     assert ADDON in bpy.context.preferences.addons, "addon did not enable"
 
@@ -25,6 +35,13 @@ def main():
     roots = mod.prefs.get_content_dirs()
     print("Content dirs:", list(roots))
     assert roots, "no Daz content dirs found"
+    # Must be the user's configured libraries, not Diffeomorphic's built-in
+    # defaults (which is what its api reports before it is enabled)
+    diffeo_api = mod.prefs._find_diffeo_api()
+    assert diffeo_api is not None, "Diffeomorphic api not found"
+    assert set(roots) >= {os.path.normpath(d) for d in
+                          diffeo_api.get_global_setting("contentDirs")
+                          if os.path.isdir(d)}, "content dirs != Diffeo settings"
 
     gens = mod.previews.generation_items(props, bpy.context)
     print("Generations:", [g[1] for g in gens])

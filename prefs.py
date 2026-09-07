@@ -17,14 +17,22 @@ _dirs_cache = None
 
 
 def _find_diffeo_api():
-    """Locate Diffeomorphic's public api module wherever it is installed."""
+    """Locate Diffeomorphic's public api module wherever it is installed.
+
+    Only an *enabled* Diffeomorphic counts: its package is importable as soon
+    as it is merely installed, but then its global settings were never loaded
+    and the api would hand back factory defaults instead of the user's
+    content directories."""
     candidates = ["import_daz"]
     try:
         for repo in bpy.context.preferences.extensions.repos:
             candidates.append("bl_ext.%s.import_daz" % repo.module)
     except AttributeError:
         pass
+    enabled = bpy.context.preferences.addons
     for name in candidates:
+        if name not in enabled:
+            continue
         try:
             return importlib.import_module(name + ".api")
         except ImportError:

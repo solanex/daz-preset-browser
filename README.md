@@ -44,22 +44,30 @@ and object transform untouched) and offer *Clear Morphs First* plus a
 
 ## Requirements
 
-- Blender 4.2+ with the Diffeomorphic DAZ importer installed and configured
-  (its content directories are reused).
+- Blender 4.2+ with the Diffeomorphic DAZ importer installed, **enabled** and
+  configured (its content directories are reused). Verified with Blender 5.2
+  LTS and Diffeomorphic 5.2.
 
 ## Development install (Linux, Flatpak Blender)
 
 ```sh
-ln -sfn "$PWD" ~/.var/app/org.blender.Blender/config/blender/5.1/extensions/user_default/daz_preset_browser
+ln -sfn "$PWD" ~/.var/app/org.blender.Blender/config/blender/5.2/extensions/user_default/daz_preset_browser
 ```
 
 The symlink name must match the extension id (`daz_preset_browser`), not the
-repo folder name. Then enable "Daz Preset Browser" in Preferences → Add-ons.
+repo folder name, and the `5.2` segment must match the running Blender
+version (each Blender X.Y has its own extensions folder, so redo this after
+an upgrade). Then enable "Daz Preset Browser" in Preferences → Add-ons.
 
 ## Tests
 
 ```sh
 .venv/bin/python -m pytest tests/            # scanner unit tests (no Blender)
 python scanner.py <library-dir>...           # standalone scan of real libraries
-flatpak run org.blender.Blender --background --python tests/blender_smoke.py
+flatpak run org.blender.Blender --background --python "$PWD/tests/blender_smoke.py"
+flatpak run org.blender.Blender --background --python "$PWD/tests/blender_e2e.py"
 ```
+
+The Flatpak needs absolute paths. The smoke test checks registration,
+library scanning and the enums; the end-to-end test imports the base
+Genesis 9 figure and really applies a pose and an expression (slow).

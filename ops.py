@@ -221,6 +221,28 @@ class DAZPRESETS_OT_remove_favorite(bpy.types.Operator):
 FACE_MORPH_SETS = ("Units", "Expressions", "Visemes", "Facs",
                    "Facsdetails", "Facsexpr", "Head")
 
+# Expression presets also write to FACS helper properties (facs_bs_*,
+# facs_ctrl_*) that Diffeomorphic does not register as morphs, so its
+# clear_morphs leaves them behind although they drive shape keys. Anything
+# with these prefixes is face-only, so zeroing leftovers is safe.
+FACE_PROP_PREFIXES = ("facs_",)
+
+
+def _zero_leftover_face_props(rig):
+    """Zero non-zero float custom properties on the rig that belong to the
+    face but escaped Diffeomorphic's clear. Returns how many were reset."""
+    count = 0
+    for key in list(rig.keys()):
+        if not key.startswith(FACE_PROP_PREFIXES):
+            continue
+        value = rig[key]
+        if isinstance(value, float) and value != 0.0:
+            rig[key] = 0.0
+            count += 1
+    if count:
+        rig.update_tag()
+    return count
+
 
 class DAZPRESETS_OT_clear_pose(bpy.types.Operator):
     bl_idname = "dazpresets.clear_pose"
@@ -287,6 +309,7 @@ class DAZPRESETS_OT_clear_expression(bpy.types.Operator):
             self.report({'ERROR'},
                         "Diffeomorphic failed to clear morphs (%s)" % errors[0])
             return {'CANCELLED'}
+        _zero_leftover_face_props(arm)
         if errors:
             self.report({'WARNING'},
                         "Some morph sets failed to clear: %s" % "; ".join(errors))
